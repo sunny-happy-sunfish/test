@@ -204,7 +204,7 @@ def negamax(board, depth, alpha, beta):
             if time.time() - last_info > INFO_INTERVAL:
                 elapsed = time.time() - start_time
                 nps = int(nodes / elapsed) if elapsed > 0 else 0
-                print(f"info depth {depth} score cp {alpha} nodes {nodes} nps {nps} pv {move.uci()}")
+                print(f"info depth {depth} score cp {alpha} nodes {nodes} nps {nps}")
                 sys.stdout.flush()
                 last_info = time.time()
 
