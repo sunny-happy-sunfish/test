@@ -6,6 +6,7 @@ import time
 
 INF = 100000
 INFO_INTERVAL = 0.5
+TIME_MARGIN = 0.05
 
 PIECE_VALUES = {
     chess.PAWN: 100,
@@ -105,7 +106,6 @@ PST = {
 board = chess.Board()
 TT = {}
 nodes = 0
-last_info = 0
 start_time = 0
 time_limit = None
 
@@ -172,12 +172,11 @@ def quiescence(board, alpha, beta):
                 alpha = score
     return alpha
 
-def negamax(board, depth, alpha, beta):
-    global nodes, last_info
+def negamax(board, depth, alpha, beta, root=True):
+    global nodes, start_time
 
     nodes += 1
-
-    if time_limit and time.time() - start_time > time_limit:
+    if time_limit and time.time() - start_time > time_limit - TIME_MARGIN:
         raise TimeoutError
 
     key = (chess.polyglot.zobrist_hash(board), depth)
@@ -193,26 +192,27 @@ def negamax(board, depth, alpha, beta):
 
     for move in moves:
         board.push(move)
-        score, _ = negamax(board, depth - 1, -beta, -alpha)
+        score, _ = negamax(board, depth - 1, -beta, -alpha, root=False)
         score = -score
         board.pop()
 
         if score > alpha:
             alpha = score
             best_move = move
-
-            if time.time() - last_info > INFO_INTERVAL:
-                elapsed = time.time() - start_time
-                nps = int(nodes / elapsed) if elapsed > 0 else 0
-                print(f"info depth {depth} score cp {alpha} nodes {nodes} nps {nps}")
-                sys.stdout.flush()
-                last_info = time.time()
-
             if alpha >= beta:
                 break
 
     TT[key] = (alpha, best_move)
     return alpha, best_move
+
+def pick_reasonable_fallback(board):
+    for move in board.legal_moves:
+        piece = board.piece_at(move.from_square)
+        if board.is_castling(move):
+            return move
+        if piece and piece.piece_type in (chess.PAWN, chess.KNIGHT):
+            return move
+    return next(iter(board.legal_moves), None)
 
 def uci_loop():
     global board, TT, nodes, start_time, time_limit
@@ -224,7 +224,7 @@ def uci_loop():
         line = line.strip()
 
         if line == "uci":
-            print("id name StrawberryChess v2.1")
+            print("id name StrawberryChess v2.2")
             print("id author MK")
             print("uciok")
             sys.stdout.flush()
@@ -245,6 +245,7 @@ def uci_loop():
             if idx < len(parts) and parts[idx] == "moves":
                 for m in parts[idx + 1:]:
                     board.push(chess.Move.from_uci(m))
+
         elif line.startswith("go"):
             depth = 5
             movetime = None
@@ -254,29 +255,38 @@ def uci_loop():
             if "movetime" in line:
                 movetime = int(line.split("movetime")[1].split()[0]) / 1000
 
-            time_limit = movetime
+            fallback = pick_reasonable_fallback(board)
+            best_move = fallback
+            best_score = -INF
+
+            if movetime and movetime < 0.2:
+                max_depth = 3
+            elif movetime and movetime < 0.5:
+                max_depth = 4
+            else:
+                max_depth = depth
+
+            start_time = time.time()
             nodes = 0
             TT.clear()
-            start_time = time.time()
+            time_limit = movetime
 
-            fallback = next(iter(board.legal_moves), None)
+            for d in range(1, max_depth + 1):
+                try:
+                    score, move = negamax(board, d, -INF, INF)
+                    if move:
+                        best_move = move
+                        best_score = score
+                except TimeoutError:
+                    break
+                if time_limit and time.time() - start_time > time_limit - TIME_MARGIN:
+                    break
 
-            try:
-                score, move = negamax(board, depth, -INF, INF)
-            except TimeoutError:
-                move = None
-
-            if move is None:
-                move = fallback
-
-            if move:
-                print(f"bestmove {move.uci()}")
+            if best_move:
+                print(f"bestmove {best_move.uci()}")
             else:
                 print("bestmove 0000")
-
             sys.stdout.flush()
-
-
 
         elif line == "quit":
             break
