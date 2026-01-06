@@ -224,7 +224,7 @@ def uci_loop():
         line = line.strip()
 
         if line == "uci":
-            print("id name StrawberryChess v2.0")
+            print("id name StrawberryChess v2.1")
             print("id author MK")
             print("uciok")
             sys.stdout.flush()
@@ -245,7 +245,6 @@ def uci_loop():
             if idx < len(parts) and parts[idx] == "moves":
                 for m in parts[idx + 1:]:
                     board.push(chess.Move.from_uci(m))
-
         elif line.startswith("go"):
             depth = 5
             movetime = None
@@ -260,16 +259,24 @@ def uci_loop():
             TT.clear()
             start_time = time.time()
 
+            fallback = next(iter(board.legal_moves), None)
+
             try:
                 score, move = negamax(board, depth, -INF, INF)
             except TimeoutError:
-                score, move = 0, None
+                move = None
+
+            if move is None:
+                move = fallback
 
             if move:
                 print(f"bestmove {move.uci()}")
             else:
                 print("bestmove 0000")
+
             sys.stdout.flush()
+
+
 
         elif line == "quit":
             break
