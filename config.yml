@@ -1,14 +1,14 @@
-token: "XXXXXXXXXXXXXXXXXXXXXXXX"         # Lichess OAuth2 Token.
+token: "litoken_idk"         # Lichess OAuth2 Token.
 
 engines:
   standard:                               # Engine used for standard chess and when no suitable special engine is configured.
     dir: "./engines"                      # Directory containing the engine.
-    name: "engine_executable"             # Binary name of the engine to use.
+    name: "strawberry.py"             # Binary name of the engine to use.
     ponder: true                          # Think on opponent's time.
     silence_stderr: false                 # Suppresses stderr output.
     move_overhead_multiplier: 1.0         # Increase if your bot flags games too often. Default move overhead is 1 second per 1 minute initital time.
     uci_options:                          # Arbitrary UCI options passed to the engine.
-      Threads: 4                          # Max CPU threads the engine can use.
+      Threads: 1                          # Max CPU threads the engine can use.
       Hash: 256                           # Max memory (in megabytes) the engine can allocate.
       Move Overhead: 100                  # Increase if your bot flags games too often.
     limits:                               # Limits that end the move calculation early.
@@ -153,8 +153,8 @@ challenge:                                # Incoming challenges.
 # max_initial: 10800                      # Maximum amount of initial time to accept a challenge.
   variants:                               # Chess variants to accept (https://lichess.org/variant).
     - standard
-    - chess960
-    - fromPosition
+#   - chess960
+#   - fromPosition
 #   - antichess
 #   - atomic
 #   - crazyhouse
@@ -166,7 +166,7 @@ challenge:                                # Incoming challenges.
     - bullet
     - blitz
     - rapid
-#   - classical
+    - classical
 #   - 25+0
   human_time_controls:                    # Speeds or time controls in initial_minutes+increment_seconds format to accept against humans.
     - bullet
@@ -174,19 +174,23 @@ challenge:                                # Incoming challenges.
     - rapid
     - classical
   bot_modes:                              # Game modes to accept against BOTs.
-#   - casual                              # Unrated games.
+    - casual                              # Unrated games.
     - rated                               # Rated games
   human_modes:                            # Game modes to accept against humans.
     - casual                              # Unrated games.
-    - rated                               # Rated games
+#   - rated                               # Rated games
 
 matchmaking:
-  delay: 480                              # Time in seconds the bot must be idle before a new challenge is started.
+  delay: 240                              # Time in seconds the bot must be idle before a new challenge is started.
   timeout: 5                              # Time until a challenge is canceled.
-  selection: weighted_random              # Matchmkaing type selection is one of "weighted_random", "sequential" or "cyclic".
+  selection: cyclic                       # Matchmkaing type selection is one of "weighted_random", "sequential" or "cyclic".
   types:                                  # Matchmaking types of which one is selected before each game.
     blitz:                                # Arbitrary name of the matchmaking type. Names must be unique.
-      tc: 3+1                             # Time control in initial_minutes+increment_seconds format.
+      tc: 5+3
+    bullet:
+      tc: 2+1
+    rapid:
+      tc: 10+5                    # Time control in initial_minutes+increment_seconds format.
 #   casual_chess960:
 #     tc: 8+1
 #     rated: false
