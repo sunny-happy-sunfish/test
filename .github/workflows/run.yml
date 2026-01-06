@@ -25,7 +25,7 @@ jobs:
         run: pip install -r requirements.txt
         
       - name: Token
-        run: sed -i "s/litoken_idk/${{ secrets.STRAWBERRY }}/g" config.yml
+        run: sed -i "s/litoken_idk/${{ secrets.TOKEN }}/g" config.yml
 
       - name: get sf
         run: |
