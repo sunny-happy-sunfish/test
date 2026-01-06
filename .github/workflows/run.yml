@@ -36,7 +36,7 @@ jobs:
           rm -r stockfish
         
       - name: chmod
-        run: chmod +x ./engines/stockfish ./engines/fairysf
+        run: chmod +x ./engines/strawberry.py
         
       - name: Run bot
         run: |
