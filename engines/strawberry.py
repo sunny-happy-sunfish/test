@@ -1,294 +1,204 @@
 #!/usr/bin/env python3
-import chess
-import chess.polyglot
 import sys
 import time
+import chess
+import math
 
-INF = 100000
-TIME_MARGIN = 0.03
+INF = 10_000
+
 PIECE_VALUES = {
     chess.PAWN: 100,
     chess.KNIGHT: 320,
     chess.BISHOP: 330,
     chess.ROOK: 500,
     chess.QUEEN: 900,
-    chess.KING: 0
+    chess.KING: 0,
 }
 
-PAWN_PST = [
-     0, 0, 0, 0, 0, 0, 0, 0,
-     5,10,10,-20,-20,10,10,5,
-     5,-5,-10,0,0,-10,-5,5,
-     0,0,0,20,20,0,0,0,
-     5,5,10,25,25,10,5,5,
-    10,10,20,30,30,20,10,10,
-    50,50,50,50,50,50,50,50,
-     0,0,0,0,0,0,0,0
-]
-
-KNIGHT_PST = [
-    -50,-40,-30,-30,-30,-30,-40,-50,
-    -40,-20,0,0,0,0,-20,-40,
-    -30,0,10,15,15,10,0,-30,
-    -30,5,15,20,20,15,5,-30,
-    -30,0,15,20,20,15,0,-30,
-    -30,5,10,15,15,10,5,-30,
-    -40,-20,0,5,5,0,-20,-40,
-    -50,-40,-30,-30,-30,-30,-40,-50
-]
-
-BISHOP_PST = [
-    -20,-10,-10,-10,-10,-10,-10,-20,
-    -10,0,0,0,0,0,0,-10,
-    -10,0,5,10,10,5,0,-10,
-    -10,5,5,10,10,5,5,-10,
-    -10,0,10,10,10,10,0,-10,
-    -10,10,10,10,10,10,10,-10,
-    -10,5,0,0,0,0,5,-10,
-    -20,-10,-10,-10,-10,-10,-10,-20
-]
-
-ROOK_PST = [
-     0,0,0,5,5,0,0,0,
-    -5,0,0,0,0,0,0,-5,
-    -5,0,0,0,0,0,0,-5,
-    -5,0,0,0,0,0,0,-5,
-    -5,0,0,0,0,0,0,-5,
-    -5,0,0,0,0,0,0,-5,
-     5,10,10,10,10,10,10,5,
-     0,0,0,0,0,0,0,0
-]
-
-QUEEN_PST = [
-    -20,-10,-10,-5,-5,-10,-10,-20,
-    -10,0,0,0,0,0,0,-10,
-    -10,0,5,5,5,5,0,-10,
-     -5,0,5,5,5,5,0,-5,
-      0,0,5,5,5,5,0,-5,
-    -10,5,5,5,5,5,0,-10,
-    -10,0,5,0,0,0,0,-10,
-    -20,-10,-10,-5,-5,-10,-10,-20
-]
-
-KING_PST = [
-    -30,-40,-40,-50,-50,-40,-40,-30,
-    -30,-40,-40,-50,-50,-40,-40,-30,
-    -30,-40,-40,-50,-50,-40,-40,-30,
-    -30,-40,-40,-50,-50,-40,-40,-30,
-    -20,-30,-30,-40,-40,-30,-30,-20,
-    -10,-20,-20,-20,-20,-20,-20,-10,
-     20,20,0,0,0,0,20,20,
-     20,30,10,0,0,10,30,20
-]
-
-KING_ENDGAME_PST = [
-     0,5,10,15,15,10,5,0,
-     5,10,15,20,20,15,10,5,
-    10,15,20,25,25,20,15,10,
-    15,20,25,30,30,25,20,15,
-    15,20,25,30,30,25,20,15,
-    10,15,20,25,25,20,15,10,
-     5,10,15,20,20,15,10,5,
-     0,5,10,15,15,10,5,0
-]
-
-PST = {
-    chess.PAWN: PAWN_PST,
-    chess.KNIGHT: KNIGHT_PST,
-    chess.BISHOP: BISHOP_PST,
-    chess.ROOK: ROOK_PST,
-    chess.QUEEN: QUEEN_PST,
-    chess.KING: KING_PST
-}
-
-board = chess.Board()
-TT = {}
-start_time = 0
-time_limit = None
+MAX_DEPTH = 4
 
 
-def material_score(board):
-    score = 0
-    for p in board.piece_map().values():
-        score += PIECE_VALUES[p.piece_type] if p.color else -PIECE_VALUES[p.piece_type]
-    return score
+class Engine:
+    def __init__(self):
+        self.board = chess.Board()
+        self.start_time = 0.0
+        self.time_limit = 0.1
+        self.nodes = 0
+        self.history = []
 
-def evaluate(board):
-    if board.is_checkmate():
-        return -INF + 1
+    # ---------------- Evaluation ----------------
 
-    base_material = material_score(board)
+    def material_score(self, board):
+        score = 0
+        for piece in board.piece_map().values():
+            v = PIECE_VALUES[piece.piece_type]
+            score += v if piece.color == chess.WHITE else -v
+        return score
 
-    if board.is_stalemate() or board.can_claim_threefold_repetition():
-        if abs(base_material) > 300:
-            return -200 if board.turn else 200
-        return 0
+    def evaluate(self, board):
+        if board.is_checkmate():
+            return -INF + 1
 
-    score = 0
-    pieces = board.piece_map()
-    endgame = len(pieces) <= 6
+        if board.is_stalemate() or board.can_claim_threefold_repetition():
+            mat = self.material_score(board)
+            if abs(mat) > 300:
+                return -200 if board.turn == chess.WHITE else 200
+            return 0
 
-    for sq, piece in pieces.items():
-        idx = sq if piece.color else 63 - sq
-        pst = KING_ENDGAME_PST[idx] if piece.piece_type == chess.KING and endgame else PST[piece.piece_type][idx]
-        val = PIECE_VALUES[piece.piece_type] + pst
-        score += val if piece.color else -val
+        score = self.material_score(board) * 1.1
+        return score if board.turn == chess.WHITE else -score
 
-    # Hanging pieces penalty
-    for sq, piece in pieces.items():
-        attackers = board.attackers(not piece.color, sq)
-        defenders = board.attackers(piece.color, sq)
-        if attackers and not defenders:
-            penalty = PIECE_VALUES[piece.piece_type] // 2
-            score += -penalty if piece.color else penalty
+    # ---------------- Quiescence ----------------
 
-    return score if board.turn else -score
+    def quiescence(self, board, alpha, beta):
+        self.nodes += 1
+        stand = self.evaluate(board)
+        if stand >= beta:
+            return beta
+        if alpha < stand:
+            alpha = stand
 
-
-def mvv_lva(board, move):
-    if not board.is_capture(move):
-        return 0
-    v = board.piece_at(move.to_square)
-    a = board.piece_at(move.from_square)
-    if v and a:
-        return 10 * PIECE_VALUES[v.piece_type] - PIECE_VALUES[a.piece_type]
-    return 0
-
-def quiescence(board, alpha, beta):
-    stand = evaluate(board)
-    if stand >= beta:
-        return beta
-    if stand > alpha:
-        alpha = stand
-
-    for move in board.legal_moves:
-        if board.is_capture(move) or board.gives_check(move):
+        for move in board.legal_moves:
+            if not board.is_capture(move):
+                continue
             board.push(move)
-            score = -quiescence(board, -beta, -alpha)
+            score = -self.quiescence(board, -beta, -alpha)
             board.pop()
+
             if score >= beta:
                 return beta
             if score > alpha:
                 alpha = score
-    return alpha
 
-def negamax(board, depth, alpha, beta):
-    if time.time() - start_time > time_limit - TIME_MARGIN:
-        raise TimeoutError
+        return alpha
 
-    key = (chess.polyglot.zobrist_hash(board), depth)
-    if key in TT:
-        return TT[key]
+    # ---------------- Search ----------------
 
-    if depth == 0 or board.is_game_over():
-        return quiescence(board, alpha, beta), None
+    def negamax(self, board, depth, alpha, beta):
+        if time.time() - self.start_time > self.time_limit:
+            return None
 
-    best_move = None
-    moves = sorted(board.legal_moves, key=lambda m: mvv_lva(board, m), reverse=True)
+        self.nodes += 1
 
-    for move in moves:
-        board.push(move)
-        score, _ = negamax(board, depth - 1, -beta, -alpha)
-        score = -score
-        board.pop()
+        if depth == 0:
+            return self.quiescence(board, alpha, beta)
 
-        if score > alpha:
-            alpha = score
-            best_move = move
+        best = -INF
+
+        for move in board.legal_moves:
+            board.push(move)
+            score = self.negamax(board, depth - 1, -beta, -alpha)
+            board.pop()
+
+            if score is None:
+                return None
+
+            score = -score
+            if score > best:
+                best = score
+            if best > alpha:
+                alpha = best
             if alpha >= beta:
                 break
 
-    TT[key] = (alpha, best_move)
-    return alpha, best_move
+        return best
 
-def fallback_move(board):
-    for m in board.legal_moves:
-        if board.is_castling(m):
-            return m
-    return next(iter(board.legal_moves))
+    def search(self):
+        best_move = None
+        alpha = -INF
+        beta = INF
 
-def uci_loop():
-    global board, start_time, time_limit
+        for depth in range(1, MAX_DEPTH + 1):
+            if time.time() - self.start_time > self.time_limit:
+                break
 
-    while True:
-        line = sys.stdin.readline()
-        if not line:
-            return
-        line = line.strip()
+            local_best = None
+            local_alpha = -INF
 
-        if line == "uci":
-            print("id name StrawberryChess v2.4")
-            print("id author MK")
-            print("uciok")
-            sys.stdout.flush()
+            for move in self.board.legal_moves:
+                self.board.push(move)
+                score = self.negamax(self.board, depth - 1, -beta, -alpha)
+                self.board.pop()
 
-        elif line == "isready":
-            print("readyok")
-            sys.stdout.flush()
-
-        elif line.startswith("position"):
-            parts = line.split()
-            if "startpos" in parts:
-                board = chess.Board()
-                idx = parts.index("startpos") + 1
-            else:
-                board = chess.Board(" ".join(parts[1:7]))
-                idx = 7
-            if idx < len(parts) and parts[idx] == "moves":
-                for m in parts[idx+1:]:
-                    board.push(chess.Move.from_uci(m))
-
-        elif line.startswith("go"):
-            parts = line.split()
-            wtime = btime = winc = binc = None
-            movetime = None
-
-            for i, p in enumerate(parts):
-                if p == "movetime":
-                    movetime = int(parts[i+1]) / 1000
-                elif p == "wtime":
-                    wtime = int(parts[i+1]) / 1000
-                elif p == "btime":
-                    btime = int(parts[i+1]) / 1000
-                elif p == "winc":
-                    winc = int(parts[i+1]) / 1000
-                elif p == "binc":
-                    binc = int(parts[i+1]) / 1000
-
-            if movetime is None:
-                remaining = wtime if board.turn else btime
-                inc = winc if board.turn else binc
-                movetime = max(0.05, min(remaining * 0.03 + (inc or 0) * 0.8, 1.0))
-
-            if movetime < 0.15:
-                max_depth = 2
-            elif movetime < 0.3:
-                max_depth = 3
-            elif movetime < 0.6:
-                max_depth = 4
-            else:
-                max_depth = 5
-
-            start_time = time.time()
-            time_limit = movetime
-            TT.clear()
-
-            best = fallback_move(board)
-
-            for d in range(1, max_depth + 1):
-                try:
-                    _, move = negamax(board, d, -INF, INF)
-                    if move:
-                        best = move
-                except TimeoutError:
+                if score is None:
                     break
 
-            print(f"bestmove {best.uci()}")
-            sys.stdout.flush()
+                score = -score
+                if score > local_alpha:
+                    local_alpha = score
+                    local_best = move
 
-        elif line == "quit":
-            return
+            if local_best is not None:
+                best_move = local_best
+                alpha = local_alpha
+
+        return best_move
+
+    # ---------------- UCI ----------------
+
+    def set_position(self, parts):
+        if parts[0] == "startpos":
+            self.board = chess.Board()
+            moves = parts[2:] if len(parts) > 1 and parts[1] == "moves" else []
+        else:
+            fen = " ".join(parts[:6])
+            self.board = chess.Board(fen)
+            moves = parts[6:]
+
+        for m in moves:
+            self.board.push_uci(m)
+
+    def go(self, args):
+        wtime = btime = winc = binc = 0
+
+        for i in range(len(args)):
+            if args[i] == "wtime":
+                wtime = int(args[i + 1])
+            elif args[i] == "btime":
+                btime = int(args[i + 1])
+            elif args[i] == "winc":
+                winc = int(args[i + 1])
+            elif args[i] == "binc":
+                binc = int(args[i + 1])
+
+        my_time = wtime if self.board.turn == chess.WHITE else btime
+        my_inc = winc if self.board.turn == chess.WHITE else binc
+
+        self.time_limit = max(0.05, my_time / 30_000 + my_inc / 1000 * 0.7)
+
+        self.start_time = time.time()
+        self.nodes = 0
+
+        move = self.search()
+        if move is None:
+            move = next(iter(self.board.legal_moves))
+
+        print(f"bestmove {move.uci()}", flush=True)
+
+    def loop(self):
+        while True:
+            line = sys.stdin.readline()
+            if not line:
+                break
+            line = line.strip()
+
+            if line == "uci":
+                print("id name StrawberryChess v2.5")
+                print("id author MK")
+                print("uciok")
+
+            elif line == "isready":
+                print("readyok")
+
+            elif line.startswith("position"):
+                self.set_position(line.split()[1:])
+
+            elif line.startswith("go"):
+                self.go(line.split()[1:])
+
+            elif line == "quit":
+                break
 
 
 if __name__ == "__main__":
-    uci_loop()
+    Engine().loop()
