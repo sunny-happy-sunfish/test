@@ -5,9 +5,7 @@ import sys
 import time
 
 INF = 100000
-INFO_INTERVAL = 0.5
 TIME_MARGIN = 0.05
-
 PIECE_VALUES = {
     chess.PAWN: 100,
     chess.KNIGHT: 320,
@@ -118,24 +116,20 @@ def evaluate(board):
     score = 0
     pieces = board.piece_map()
     endgame = len(pieces) <= 6
-
     pawns = {chess.WHITE: [], chess.BLACK: []}
 
     for sq, piece in pieces.items():
         value = PIECE_VALUES[piece.piece_type]
         idx = sq if piece.color == chess.WHITE else 63 - sq
-
         if piece.piece_type == chess.KING and endgame:
             pst = KING_ENDGAME_PST[idx]
         else:
             pst = PST[piece.piece_type][idx]
-
         score += (value + pst) if piece.color == chess.WHITE else -(value + pst)
-
         if piece.piece_type == chess.PAWN:
             pawns[piece.color].append(sq)
 
-    # pawn structure
+
     for color, ps in pawns.items():
         files = [p % 8 for p in ps]
         for f in set(files):
@@ -160,7 +154,6 @@ def quiescence(board, alpha, beta):
         return beta
     if stand > alpha:
         alpha = stand
-
     for move in board.legal_moves:
         if board.is_capture(move):
             board.push(move)
@@ -174,15 +167,12 @@ def quiescence(board, alpha, beta):
 
 def negamax(board, depth, alpha, beta, root=True):
     global nodes, start_time
-
     nodes += 1
     if time_limit and time.time() - start_time > time_limit - TIME_MARGIN:
         raise TimeoutError
-
     key = (chess.polyglot.zobrist_hash(board), depth)
     if key in TT:
         return TT[key]
-
     if depth == 0 or board.is_game_over():
         return quiescence(board, alpha, beta), None
 
@@ -195,7 +185,6 @@ def negamax(board, depth, alpha, beta, root=True):
         score, _ = negamax(board, depth - 1, -beta, -alpha, root=False)
         score = -score
         board.pop()
-
         if score > alpha:
             alpha = score
             best_move = move
@@ -204,6 +193,7 @@ def negamax(board, depth, alpha, beta, root=True):
 
     TT[key] = (alpha, best_move)
     return alpha, best_move
+
 
 def pick_reasonable_fallback(board):
     for move in board.legal_moves:
@@ -214,25 +204,22 @@ def pick_reasonable_fallback(board):
             return move
     return next(iter(board.legal_moves), None)
 
+
 def uci_loop():
     global board, TT, nodes, start_time, time_limit
-
     while True:
         line = sys.stdin.readline()
         if not line:
             break
         line = line.strip()
-
         if line == "uci":
-            print("id name StrawberryChess v2.2")
+            print("id name StrawberryChess v2.3")
             print("id author MK")
             print("uciok")
             sys.stdout.flush()
-
         elif line == "isready":
             print("readyok")
             sys.stdout.flush()
-
         elif line.startswith("position"):
             parts = line.split()
             if "startpos" in parts:
@@ -245,11 +232,9 @@ def uci_loop():
             if idx < len(parts) and parts[idx] == "moves":
                 for m in parts[idx + 1:]:
                     board.push(chess.Move.from_uci(m))
-
         elif line.startswith("go"):
             depth = 5
             movetime = None
-
             if "depth" in line:
                 depth = int(line.split("depth")[1].split()[0])
             if "movetime" in line:
@@ -271,6 +256,7 @@ def uci_loop():
             TT.clear()
             time_limit = movetime
 
+
             for d in range(1, max_depth + 1):
                 try:
                     score, move = negamax(board, d, -INF, INF)
@@ -282,14 +268,22 @@ def uci_loop():
                 if time_limit and time.time() - start_time > time_limit - TIME_MARGIN:
                     break
 
+
             if best_move:
                 print(f"bestmove {best_move.uci()}")
             else:
                 print("bestmove 0000")
             sys.stdout.flush()
-
         elif line == "quit":
             break
 
+
 if __name__ == "__main__":
-    uci_loop()
+    try:
+        uci_loop()
+    except Exception as e:
+        sys.stderr.write(str(e) + "\n")
+        sys.stderr.flush()
+    finally:
+        while True:
+            time.sleep(1)
