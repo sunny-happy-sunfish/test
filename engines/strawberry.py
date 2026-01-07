@@ -124,9 +124,12 @@ def evaluate(board):
 
     fen = board.board_fen() + (" w" if board.turn else " b")
     mat = material_score(board)
-    rep_penalty = 0
-    if mat < 300:
-        rep_penalty = -50 * REPEAT_COUNTS.get(fen,0)
+    rep = REPEAT_COUNTS.get(fen, 0)
+    if mat > 150 and rep > 0:
+        rep_penalty = -120 * rep
+    else:
+        rep_penalty = 0
+
 
     for sq, piece in pieces.items():
         idx = sq if piece.color else 63 - sq
@@ -158,8 +161,21 @@ def evaluate(board):
 
         score += val if piece.color else -val
 
-    if abs(mat)<300:
+    if mat > 200:
+        score += 5 * (
+            len(board.pieces(chess.QUEEN, chess.BLACK)) +
+            len(board.pieces(chess.ROOK, chess.BLACK))
+        )
+
+    if mat < -200:
+        score -= 5 * (
+            len(board.pieces(chess.QUEEN, chess.WHITE)) +
+            len(board.pieces(chess.ROOK, chess.WHITE))
+        )
+
+    if abs(mat) < 300:
         score += rep_penalty
+
 
     return score if board.turn else -score
 
@@ -177,7 +193,8 @@ def quiescence(board, alpha, beta):
     if stand >= beta: return beta
     if stand > alpha: alpha = stand
     for move in board.legal_moves:
-        if board.is_capture(move) or board.gives_check(move):
+        gives_check = board.gives_check(move)
+        if board.is_capture(move) or (gives_check and evaluate(board) < 120):
             board.push(move)
             score = -quiescence(board, -beta, -alpha)
             board.pop()
@@ -228,7 +245,7 @@ def uci_loop():
         if not line: continue
 
         if line=="uci":
-            print("id name StrawberryChess v3.0")
+            print("id name StrawberryChess v3.1")
             print("id author MK")
             print("uciok")
             sys.stdout.flush()
