@@ -15,8 +15,80 @@ PIECE_VALUES = {
     chess.KING: 0
 }
 
-# PST можно оставить без изменений
-# ENDGAME PST для короля используется только если <=6 фигур
+# -------------------- PST --------------------
+# Пешки: центр + продвижение
+PAWN_PST = [
+     0,0,0,0,0,0,0,0,
+     5,10,10,-20,-20,10,10,5,
+     5,-5,-10,0,0,-10,-5,5,
+     0,0,0,20,20,0,0,0,
+     5,5,10,25,25,10,5,5,
+    10,10,20,30,30,20,10,10,
+    50,50,50,50,50,50,50,50,
+     0,0,0,0,0,0,0,0
+]
+
+# Конь: центр
+KNIGHT_PST = [
+    -50,-40,-30,-30,-30,-30,-40,-50,
+    -40,-20,0,0,0,0,-20,-40,
+    -30,0,10,15,15,10,0,-30,
+    -30,5,15,20,20,15,5,-30,
+    -30,0,15,20,20,15,0,-30,
+    -30,5,10,15,15,10,5,-30,
+    -40,-20,0,5,5,0,-20,-40,
+    -50,-40,-30,-30,-30,-30,-40,-50
+]
+
+# Слон: центр
+BISHOP_PST = [
+    -20,-10,-10,-10,-10,-10,-10,-20,
+    -10,0,0,0,0,0,0,-10,
+    -10,0,5,10,10,5,0,-10,
+    -10,5,5,10,10,5,5,-10,
+    -10,0,10,10,10,10,0,-10,
+    -10,10,10,10,10,10,10,-10,
+    -10,5,0,0,0,0,5,-10,
+    -20,-10,-10,-10,-10,-10,-10,-20
+]
+
+# Ладья: открытые линии
+ROOK_PST = [
+     0,0,0,5,5,0,0,0,
+    -5,0,0,0,0,0,0,-5,
+    -5,0,0,0,0,0,0,-5,
+    -5,0,0,0,0,0,0,-5,
+    -5,0,0,0,0,0,0,-5,
+    -5,0,0,0,0,0,0,-5,
+     5,10,10,10,10,10,10,5,
+     0,0,0,0,0,0,0,0
+]
+
+# Ферзь: центр
+QUEEN_PST = [
+    -20,-10,-10,-5,-5,-10,-10,-20,
+    -10,0,0,0,0,0,0,-10,
+    -10,0,5,5,5,5,0,-10,
+     -5,0,5,5,5,5,0,-5,
+      0,0,5,5,5,5,0,-5,
+    -10,5,5,5,5,5,0,-10,
+    -10,0,5,0,0,0,0,-10,
+    -20,-10,-10,-5,-5,-10,-10,-20
+]
+
+# Король мидгейм
+KING_PST = [
+    -30,-40,-40,-50,-50,-40,-40,-30,
+    -30,-40,-40,-50,-50,-40,-40,-30,
+    -30,-40,-40,-50,-50,-40,-40,-30,
+    -30,-40,-40,-50,-50,-40,-40,-30,
+    -20,-30,-30,-40,-40,-30,-30,-20,
+    -10,-20,-20,-20,-20,-20,-20,-10,
+     20,20,0,0,0,0,20,20,
+     20,30,10,0,0,10,30,20
+]
+
+# Король эндшпиль
 KING_ENDGAME_PST = [
      0,5,10,15,15,10,5,0,
      5,10,15,20,20,15,10,5,
@@ -27,6 +99,15 @@ KING_ENDGAME_PST = [
      5,10,15,20,20,15,10,5,
      0,5,10,15,15,10,5,0
 ]
+
+PST = {
+    chess.PAWN: PAWN_PST,
+    chess.KNIGHT: KNIGHT_PST,
+    chess.BISHOP: BISHOP_PST,
+    chess.ROOK: ROOK_PST,
+    chess.QUEEN: QUEEN_PST,
+    chess.KING: KING_PST
+}
 
 board = chess.Board()
 TT = {}
@@ -46,11 +127,18 @@ def evaluate(board):
 
     base_material = material_score(board)
 
-    # Троекратное повторение и пат
+    # Ничья и троекратное повторение
     if board.is_stalemate() or board.can_claim_threefold_repetition():
         if abs(base_material) > 300:
             return -200 if board.turn else 200
         return 0
+
+    # Штраф за повтор позиции
+    if not hasattr(board, "rep_counts"):
+        board.rep_counts = {}
+    fen = board.board_fen() + (" w" if board.turn else " b")
+    count = board.rep_counts.get(fen, 0)
+    rep_penalty = -50 * count
 
     score = 0
     pieces = board.piece_map()
@@ -61,13 +149,11 @@ def evaluate(board):
         if piece.piece_type == chess.KING and endgame:
             pst = KING_ENDGAME_PST[idx]
         else:
-            pst = 0  # можно добавить PST для пешек/коней, но пока минимально
+            pst = PST[piece.piece_type][idx]
         val = PIECE_VALUES[piece.piece_type] + pst
         score += val if piece.color else -val
 
-    # -------- убрали висящие фигуры ----------
-    # раньше тут был penalty, теперь нет
-
+    score += rep_penalty
     return score if board.turn else -score
 
 # ------------------- MVV-LVA -------------------
@@ -111,6 +197,9 @@ def negamax(board, depth, alpha, beta):
     if depth == 0 or board.is_game_over():
         return quiescence(board, alpha, beta), None
 
+    fen = board.board_fen() + (" w" if board.turn else " b")
+    board.rep_counts[fen] = board.rep_counts.get(fen, 0) + 1
+
     best_move = None
     moves = sorted(board.legal_moves, key=lambda m: mvv_lva(board, m), reverse=True)
 
@@ -126,6 +215,7 @@ def negamax(board, depth, alpha, beta):
             if alpha >= beta:
                 break
 
+    board.rep_counts[fen] -= 1
     TT[key] = (alpha, best_move)
     return alpha, best_move
 
@@ -148,8 +238,8 @@ def uci_loop():
             continue
 
         if line == "uci":
-            print("id name StablePythonEngine")
-            print("id author ChatGPT")
+            print("id name StrawberryChess v2.7")
+            print("id author MK")
             print("uciok")
             sys.stdout.flush()
 
@@ -219,7 +309,6 @@ def uci_loop():
 
         elif line == "quit":
             return
-
 
 if __name__ == "__main__":
     uci_loop()
