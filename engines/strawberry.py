@@ -15,9 +15,8 @@ PIECE_VALUES = {
     chess.KING: 0
 }
 
-# -------------------- PST --------------------
 PAWN_PST = [
-     0,0,0,0,0,0,0,0,
+     0, 0, 0, 0, 0, 0, 0, 0,
      5,10,10,-20,-20,10,10,5,
      5,-5,-10,0,0,-10,-5,5,
      0,0,0,20,20,0,0,0,
@@ -102,184 +101,193 @@ PST = {
     chess.KING: KING_PST
 }
 
-CENTER_SQUARES = [chess.D4, chess.D5, chess.E4, chess.E5]
-DEVELOPMENT_BONUS = {chess.KNIGHT: 20, chess.BISHOP: 15}
-
 board = chess.Board()
 TT = {}
 start_time = 0
-time_limit = 0
-REPEAT_COUNTS = {}
+time_limit = None
 
-# ---------------- Evaluation ----------------
 def material_score(board):
-    return sum((PIECE_VALUES[p.piece_type] if p.color else -PIECE_VALUES[p.piece_type]) for p in board.piece_map().values())
+    score = 0
+    for p in board.piece_map().values():
+        score += PIECE_VALUES[p.piece_type] if p.color else -PIECE_VALUES[p.piece_type]
+    return score
 
 def evaluate(board):
+    # Мат и пат имеют абсолютный приоритет
     if board.is_checkmate():
-        return -INF + 1
+        return -INF + 1 if board.turn else INF - 1
+    if board.is_stalemate():
+        return 0
+    if board.can_claim_threefold_repetition():
+        # Даем +/− оценку если позиция явно выигрышная
+        score = material_score(board)
+        if abs(score) > 300:
+            return score
+        return 0
+
     score = 0
     pieces = board.piece_map()
     endgame = len(pieces) <= 6
 
-    fen = board.board_fen() + (" w" if board.turn else " b")
-    mat = material_score(board)
-    rep_penalty = 0
-    if mat < 300:
-        rep_penalty = -50 * REPEAT_COUNTS.get(fen,0)
-
     for sq, piece in pieces.items():
         idx = sq if piece.color else 63 - sq
-        if piece.piece_type == chess.KING:
-            pst = KING_ENDGAME_PST[idx] if endgame else PST[chess.KING][idx]
-        else:
-            pst = PST[piece.piece_type][idx]
-
+        pst = KING_ENDGAME_PST[idx] if piece.piece_type == chess.KING and endgame else PST[piece.piece_type][idx]
         val = PIECE_VALUES[piece.piece_type] + pst
-
-        # Анти-зевки
-        attackers = board.attackers(not piece.color, sq)
-        defenders = board.attackers(piece.color, sq)
-        if attackers and not defenders and PIECE_VALUES[piece.piece_type]>=320:
-            val -= 50
-
-        # Центр и развитие для не-короля
-        if piece.piece_type != chess.KING:
-            if sq in CENTER_SQUARES:
-                val += 20
-            if piece.piece_type in DEVELOPMENT_BONUS and not board.has_castling_rights(piece.color):
-                val += DEVELOPMENT_BONUS[piece.piece_type]
-
-        # Король раннего дебюта: не лезем на 2й ряд
-        if piece.piece_type==chess.KING and not board.has_castling_rights(piece.color):
-            rank = chess.square_rank(sq)
-            if (piece.color and rank<2) or (not piece.color and rank>5):
-                val -= 200  # штраф за раннее движение короля
-
         score += val if piece.color else -val
 
-    if abs(mat)<300:
-        score += rep_penalty
+    # Штраф за висящие фигуры
+    for sq, piece in pieces.items():
+        attackers = board.attackers(not piece.color, sq)
+        defenders = board.attackers(piece.color, sq)
+        if attackers and not defenders:
+            penalty = PIECE_VALUES[piece.piece_type] // 2
+            score += -penalty if piece.color else penalty
 
     return score if board.turn else -score
 
-# ---------------- MVV-LVA ----------------
 def mvv_lva(board, move):
-    if not board.is_capture(move): return 0
+    if not board.is_capture(move):
+        return 0
     v = board.piece_at(move.to_square)
     a = board.piece_at(move.from_square)
-    if v and a: return 10*PIECE_VALUES[v.piece_type] - PIECE_VALUES[a.piece_type]
+    if v and a:
+        return 10 * PIECE_VALUES[v.piece_type] - PIECE_VALUES[a.piece_type]
     return 0
 
-# ---------------- Quiescence ----------------
 def quiescence(board, alpha, beta):
     stand = evaluate(board)
-    if stand >= beta: return beta
-    if stand > alpha: alpha = stand
+    if stand >= beta:
+        return beta
+    if stand > alpha:
+        alpha = stand
+
     for move in board.legal_moves:
         if board.is_capture(move) or board.gives_check(move):
             board.push(move)
             score = -quiescence(board, -beta, -alpha)
             board.pop()
-            if score >= beta: return beta
-            if score > alpha: alpha = score
+            if score >= beta:
+                return beta
+            if score > alpha:
+                alpha = score
     return alpha
 
-# ---------------- Negamax ----------------
 def negamax(board, depth, alpha, beta):
-    if time.time()-start_time > time_limit - TIME_MARGIN: raise TimeoutError
-    key=(chess.polyglot.zobrist_hash(board), depth)
-    if key in TT: return TT[key]
+    if time.time() - start_time > time_limit - TIME_MARGIN:
+        raise TimeoutError
 
-    if depth==0 or board.is_game_over(): return quiescence(board, alpha, beta), None
+    key = (chess.polyglot.zobrist_hash(board), depth)
+    if key in TT:
+        return TT[key]
 
-    fen=board.board_fen() + (" w" if board.turn else " b")
-    REPEAT_COUNTS[fen] = REPEAT_COUNTS.get(fen,0)+1
+    if depth == 0 or board.is_game_over():
+        return quiescence(board, alpha, beta), None
 
-    moves=sorted(board.legal_moves, key=lambda m: mvv_lva(board,m)+ (10 if m.to_square in CENTER_SQUARES and board.piece_at(m.from_square).piece_type!=chess.KING else 0), reverse=True)
-    best_move=None
+    best_move = None
+    moves = sorted(board.legal_moves, key=lambda m: mvv_lva(board, m), reverse=True)
 
     for move in moves:
         board.push(move)
-        score,_ = negamax(board, depth-1, -beta, -alpha)
+        score, _ = negamax(board, depth - 1, -beta, -alpha)
         score = -score
         board.pop()
-        if score>alpha:
+
+        if score > alpha:
             alpha = score
             best_move = move
-            if alpha>=beta: break
+            if alpha >= beta:
+                break
 
-    REPEAT_COUNTS[fen]-=1
-    TT[key]=(alpha,best_move)
-    return alpha,best_move
+    TT[key] = (alpha, best_move)
+    return alpha, best_move
 
 def fallback_move(board):
     for m in board.legal_moves:
-        if board.is_castling(m): return m
+        if board.is_castling(m):
+            return m
     return next(iter(board.legal_moves))
 
-# ---------------- UCI Loop ----------------
 def uci_loop():
-    global board,start_time,time_limit,REPEAT_COUNTS
+    global board, start_time, time_limit
+
     while True:
         line = sys.stdin.readline()
-        if not line: return
-        line=line.strip()
-        if not line: continue
+        if not line:
+            return
+        line = line.strip()
 
-        if line=="uci":
-            print("id name StrawberryChess v3.0.1")
+        if line == "uci":
+            print("id name StrawberryChess v3.0.2")
             print("id author MK")
             print("uciok")
             sys.stdout.flush()
-        elif line=="isready":
+
+        elif line == "isready":
             print("readyok")
             sys.stdout.flush()
+
         elif line.startswith("position"):
-            parts=line.split()
+            parts = line.split()
             if "startpos" in parts:
-                board=chess.Board()
-                idx=parts.index("startpos")+1
+                board = chess.Board()
+                idx = parts.index("startpos") + 1
             else:
-                board=chess.Board(" ".join(parts[1:7]))
-                idx=7
-            if idx<len(parts) and parts[idx]=="moves":
-                for m in parts[idx+1:]: board.push(chess.Move.from_uci(m))
+                board = chess.Board(" ".join(parts[1:7]))
+                idx = 7
+            if idx < len(parts) and parts[idx] == "moves":
+                for m in parts[idx+1:]:
+                    board.push(chess.Move.from_uci(m))
+
         elif line.startswith("go"):
-            parts=line.split()
-            wtime=btime=winc=binc=None
-            movetime=None
-            for i,p in enumerate(parts):
-                if p=="movetime": movetime=int(parts[i+1])/1000
-                elif p=="wtime": wtime=int(parts[i+1])/1000
-                elif p=="btime": btime=int(parts[i+1])/1000
-                elif p=="winc": winc=int(parts[i+1])/1000
-                elif p=="binc": binc=int(parts[i+1])/1000
+            parts = line.split()
+            wtime = btime = winc = binc = None
+            movetime = None
+
+            for i, p in enumerate(parts):
+                if p == "movetime":
+                    movetime = int(parts[i+1]) / 1000
+                elif p == "wtime":
+                    wtime = int(parts[i+1]) / 1000
+                elif p == "btime":
+                    btime = int(parts[i+1]) / 1000
+                elif p == "winc":
+                    winc = int(parts[i+1]) / 1000
+                elif p == "binc":
+                    binc = int(parts[i+1]) / 1000
+
             if movetime is None:
                 remaining = wtime if board.turn else btime
                 inc = winc if board.turn else binc
-                movetime=max(0.05,min(remaining*0.03+(inc or 0)*0.8,1.0))
+                movetime = max(0.05, min(remaining * 0.03 + (inc or 0) * 0.8, 1.0))
 
-            if movetime<0.15: max_depth=2
-            elif movetime<0.3: max_depth=3
-            elif movetime<0.6: max_depth=4
-            else: max_depth=5
+            if movetime < 0.15:
+                max_depth = 2
+            elif movetime < 0.3:
+                max_depth = 3
+            elif movetime < 0.6:
+                max_depth = 4
+            else:
+                max_depth = 5
 
-            start_time=time.time()
-            time_limit=movetime
+            start_time = time.time()
+            time_limit = movetime
             TT.clear()
-            REPEAT_COUNTS.clear()
-            best=fallback_move(board)
-            for d in range(1,max_depth+1):
+
+            best = fallback_move(board)
+
+            for d in range(1, max_depth + 1):
                 try:
-                    _,move=negamax(board,d,-INF,INF)
-                    if move: best=move
-                except TimeoutError: break
-            eval_score=evaluate(board)
-            print(f"info score cp {eval_score}")
+                    _, move = negamax(board, d, -INF, INF)
+                    if move:
+                        best = move
+                except TimeoutError:
+                    break
+
             print(f"bestmove {best.uci()}")
             sys.stdout.flush()
-        elif line=="quit": return
 
-if __name__=="__main__":
+        elif line == "quit":
+            return
+
+if __name__ == "__main__":
     uci_loop()
