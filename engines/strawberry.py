@@ -284,6 +284,3 @@ if __name__ == "__main__":
     except Exception as e:
         sys.stderr.write(str(e) + "\n")
         sys.stderr.flush()
-    finally:
-        while True:
-            time.sleep(1)
