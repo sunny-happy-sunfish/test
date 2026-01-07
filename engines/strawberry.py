@@ -210,7 +210,7 @@ def uci_loop():
     while True:
         line = sys.stdin.readline()
         if not line:
-            break
+            return
         line = line.strip()
         if line == "uci":
             print("id name StrawberryChess v2.3")
@@ -235,52 +235,59 @@ def uci_loop():
         elif line.startswith("go"):
             depth = 5
             movetime = None
-            if "depth" in line:
-                depth = int(line.split("depth")[1].split()[0])
-            if "movetime" in line:
-                movetime = int(line.split("movetime")[1].split()[0]) / 1000
+            wtime = btime = winc = binc = None
 
-            fallback = pick_reasonable_fallback(board)
-            best_move = fallback
-            best_score = -INF
+            parts = line.split()
+            for i, p in enumerate(parts):
+                if p == "movetime":
+                    movetime = int(parts[i+1]) / 1000
+                elif p == "wtime":
+                    wtime = int(parts[i+1]) / 1000
+                elif p == "btime":
+                    btime = int(parts[i+1]) / 1000
+                elif p == "winc":
+                    winc = int(parts[i+1]) / 1000
+                elif p == "binc":
+                    binc = int(parts[i+1]) / 1000
+    
+            if movetime is None:
+                remaining = wtime if board.turn == chess.WHITE else btime
+                increment = winc if board.turn == chess.WHITE else binc
+                if remaining is None:
+                    movetime = 0.1
+                else:
+                    movetime = max(0.05, min(remaining * 0.03 + increment * 0.8, 1.0))
 
-            if movetime and movetime < 0.2:
+            if movetime < 0.15:
+                max_depth = 2
+            elif movetime < 0.3:
                 max_depth = 3
-            elif movetime and movetime < 0.5:
+            elif movetime < 0.6:
                 max_depth = 4
             else:
-                max_depth = depth
+                max_depth = 5
 
             start_time = time.time()
-            nodes = 0
-            TT.clear()
             time_limit = movetime
+            TT.clear()
 
+            best_move = pick_reasonable_fallback(board)
 
             for d in range(1, max_depth + 1):
                 try:
                     score, move = negamax(board, d, -INF, INF)
                     if move:
                         best_move = move
-                        best_score = score
                 except TimeoutError:
                     break
-                if time_limit and time.time() - start_time > time_limit - TIME_MARGIN:
-                    break
 
-
-            if best_move:
-                print(f"bestmove {best_move.uci()}")
-            else:
-                print("bestmove 0000")
+            print(f"bestmove {best_move.uci()}")
             sys.stdout.flush()
+
         elif line == "quit":
-            break
+            return
+
 
 
 if __name__ == "__main__":
-    try:
-        uci_loop()
-    except Exception as e:
-        sys.stderr.write(str(e) + "\n")
-        sys.stderr.flush()
+    uci_loop()
