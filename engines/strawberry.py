@@ -217,8 +217,8 @@ def uci_loop():
         line = line.strip()
 
         if line == "uci":
-            print("id name PythonSafeEngine")
-            print("id author ChatGPT")
+            print("id name StrawberryChess v2.4")
+            print("id author MK")
             print("uciok")
             sys.stdout.flush()
 
