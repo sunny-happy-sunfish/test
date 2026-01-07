@@ -16,7 +16,6 @@ PIECE_VALUES = {
 }
 
 # -------------------- PST --------------------
-# Пешки: центр + продвижение
 PAWN_PST = [
      0,0,0,0,0,0,0,0,
      5,10,10,-20,-20,10,10,5,
@@ -28,7 +27,6 @@ PAWN_PST = [
      0,0,0,0,0,0,0,0
 ]
 
-# Конь: центр
 KNIGHT_PST = [
     -50,-40,-30,-30,-30,-30,-40,-50,
     -40,-20,0,0,0,0,-20,-40,
@@ -40,7 +38,6 @@ KNIGHT_PST = [
     -50,-40,-30,-30,-30,-30,-40,-50
 ]
 
-# Слон: центр
 BISHOP_PST = [
     -20,-10,-10,-10,-10,-10,-10,-20,
     -10,0,0,0,0,0,0,-10,
@@ -52,7 +49,6 @@ BISHOP_PST = [
     -20,-10,-10,-10,-10,-10,-10,-20
 ]
 
-# Ладья: открытые линии
 ROOK_PST = [
      0,0,0,5,5,0,0,0,
     -5,0,0,0,0,0,0,-5,
@@ -64,7 +60,6 @@ ROOK_PST = [
      0,0,0,0,0,0,0,0
 ]
 
-# Ферзь: центр
 QUEEN_PST = [
     -20,-10,-10,-5,-5,-10,-10,-20,
     -10,0,0,0,0,0,0,-10,
@@ -76,7 +71,6 @@ QUEEN_PST = [
     -20,-10,-10,-5,-5,-10,-10,-20
 ]
 
-# Король мидгейм
 KING_PST = [
     -30,-40,-40,-50,-50,-40,-40,-30,
     -30,-40,-40,-50,-50,-40,-40,-30,
@@ -88,7 +82,6 @@ KING_PST = [
      20,30,10,0,0,10,30,20
 ]
 
-# Король эндшпиль
 KING_ENDGAME_PST = [
      0,5,10,15,15,10,5,0,
      5,10,15,20,20,15,10,5,
@@ -113,8 +106,9 @@ board = chess.Board()
 TT = {}
 start_time = 0
 time_limit = None
+REPEAT_COUNTS = {}
 
-# ------------------- Оценка -------------------
+# ------------------- Evaluation -------------------
 def material_score(board):
     score = 0
     for p in board.piece_map().values():
@@ -127,17 +121,14 @@ def evaluate(board):
 
     base_material = material_score(board)
 
-    # Ничья и троекратное повторение
+    # Ничья / троекратное повторение
     if board.is_stalemate() or board.can_claim_threefold_repetition():
         if abs(base_material) > 300:
             return -200 if board.turn else 200
         return 0
 
-    # Штраф за повтор позиции
-    if not hasattr(board, "rep_counts"):
-        board.rep_counts = {}
     fen = board.board_fen() + (" w" if board.turn else " b")
-    count = board.rep_counts.get(fen, 0)
+    count = REPEAT_COUNTS.get(fen, 0)
     rep_penalty = -50 * count
 
     score = 0
@@ -198,7 +189,7 @@ def negamax(board, depth, alpha, beta):
         return quiescence(board, alpha, beta), None
 
     fen = board.board_fen() + (" w" if board.turn else " b")
-    board.rep_counts[fen] = board.rep_counts.get(fen, 0) + 1
+    REPEAT_COUNTS[fen] = REPEAT_COUNTS.get(fen, 0) + 1
 
     best_move = None
     moves = sorted(board.legal_moves, key=lambda m: mvv_lva(board, m), reverse=True)
@@ -215,7 +206,7 @@ def negamax(board, depth, alpha, beta):
             if alpha >= beta:
                 break
 
-    board.rep_counts[fen] -= 1
+    REPEAT_COUNTS[fen] -= 1
     TT[key] = (alpha, best_move)
     return alpha, best_move
 
@@ -225,10 +216,9 @@ def fallback_move(board):
             return m
     return next(iter(board.legal_moves))
 
-# ------------------- UCI -------------------
+# ------------------- UCI Loop -------------------
 def uci_loop():
-    global board, start_time, time_limit
-
+    global board, start_time, time_limit, REPEAT_COUNTS
     while True:
         line = sys.stdin.readline()
         if not line:
@@ -238,7 +228,7 @@ def uci_loop():
             continue
 
         if line == "uci":
-            print("id name StrawberryChess v2.7")
+            print("id name StrawberryChess v2.8")
             print("id author MK")
             print("uciok")
             sys.stdout.flush()
@@ -293,6 +283,7 @@ def uci_loop():
             start_time = time.time()
             time_limit = movetime
             TT.clear()
+            REPEAT_COUNTS.clear()
 
             best = fallback_move(board)
 
