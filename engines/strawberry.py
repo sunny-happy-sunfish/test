@@ -122,17 +122,22 @@ def evaluate(board):
     if board.is_checkmate():
         return -INF + 1
 
-    base_material = material_score(board)
     score = 0
     pieces = board.piece_map()
     endgame = len(pieces) <= 6
 
     fen = board.board_fen() + (" w" if board.turn else " b")
-    rep_penalty = -50 * REPEAT_COUNTS.get(fen, 0)
+    rep_penalty = 0
+    if abs(material_score(board)) < 300:  # только для мелких позиций
+        rep_penalty = -50 * REPEAT_COUNTS.get(fen, 0)
 
     for sq, piece in pieces.items():
         idx = sq if piece.color else 63 - sq
-        pst = KING_ENDGAME_PST[idx] if piece.piece_type == chess.KING and endgame else PST[piece.piece_type][idx]
+        if piece.piece_type == chess.KING:
+            pst = KING_ENDGAME_PST[idx] if endgame else PST[chess.KING][idx]
+        else:
+            pst = PST[piece.piece_type][idx]
+
         val = PIECE_VALUES[piece.piece_type] + pst
 
         # Анти-зевок крупных фигур
@@ -141,11 +146,12 @@ def evaluate(board):
         if attackers and not defenders and PIECE_VALUES[piece.piece_type] >= 320:
             val -= 50
 
-        # Центр и развитие
-        if sq in CENTER_SQUARES:
-            val += 20
-        if piece.piece_type in DEVELOPMENT_BONUS and not board.has_castling_rights(piece.color):
-            val += DEVELOPMENT_BONUS[piece.piece_type]
+        # Центр и развитие — только для не-короля
+        if piece.piece_type != chess.KING:
+            if sq in CENTER_SQUARES:
+                val += 20
+            if piece.piece_type in DEVELOPMENT_BONUS and not board.has_castling_rights(piece.color):
+                val += DEVELOPMENT_BONUS[piece.piece_type]
 
         score += val if piece.color else -val
 
@@ -195,8 +201,7 @@ def negamax(board, depth, alpha, beta):
     fen = board.board_fen() + (" w" if board.turn else " b")
     REPEAT_COUNTS[fen] = REPEAT_COUNTS.get(fen, 0) + 1
 
-    # Сортировка: MVV-LVA + центр
-    moves = sorted(board.legal_moves, key=lambda m: mvv_lva(board, m) + (10 if m.to_square in CENTER_SQUARES else 0), reverse=True)
+    moves = sorted(board.legal_moves, key=lambda m: mvv_lva(board, m) + (10 if m.to_square in CENTER_SQUARES and board.piece_at(m.from_square).piece_type != chess.KING else 0), reverse=True)
 
     best_move = None
     for move in moves:
@@ -232,7 +237,7 @@ def uci_loop():
             continue
 
         if line == "uci":
-            print("id name StrawberryChess v2.9")
+            print("id name StrawberryChess v2.10")
             print("id author MK")
             print("uciok")
             sys.stdout.flush()
