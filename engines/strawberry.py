@@ -179,7 +179,7 @@ class Engine:
         while True:
             line = sys.stdin.readline()
             if not line:
-                break
+                return
             line = line.strip()
 
             if line == "uci":
@@ -197,7 +197,7 @@ class Engine:
                 self.go(line.split()[1:])
 
             elif line == "quit":
-                break
+                return
 
 
 if __name__ == "__main__":
